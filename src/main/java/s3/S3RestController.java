@@ -5,12 +5,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 
+import javax.ws.rs.QueryParam;
+
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.Bucket;
 import com.amazonaws.services.s3.model.CannedAccessControlList;
+import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,18 +31,16 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/buckets")
 public class S3RestController {
 
-	public static AmazonS3 s3;
-
 	@GetMapping("/")
 	public ResponseEntity<List<Bucket>> listBuckets() {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		List<Bucket> buckets = s3.listBuckets();
 		return new ResponseEntity<>(buckets, HttpStatus.OK);
 	}
 
 	@GetMapping("/{bucketName}")
 	public ResponseEntity<Bucket> getBucket(@PathVariable String bucketName) {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		if (!s3.doesBucketExistV2(bucketName)) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}
@@ -52,9 +54,24 @@ public class S3RestController {
 		return new ResponseEntity<>(bucket, HttpStatus.OK);
 	}
 
+	@GetMapping("/{bucketName}/objects")
+	public ResponseEntity<List<S3ObjectSummary>> getBucketObjects(@PathVariable String bucketName) {
+		AmazonS3 s3 = configureS3();
+		if (!s3.doesBucketExistV2(bucketName)) {
+			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+		}
+		ObjectListing objList = s3.listObjects(bucketName);
+		List<S3ObjectSummary> summaries = objList.getObjectSummaries();
+		while (objList.isTruncated()) {
+			objList = s3.listNextBatchOfObjects(objList);
+			summaries.addAll(objList.getObjectSummaries());
+		}
+		return new ResponseEntity<>(summaries, HttpStatus.OK);
+	}
+
 	@PostMapping("/{bucketName}")
 	public ResponseEntity<String> newBucket(@PathVariable String bucketName) {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		if (s3.doesBucketExistV2(bucketName)) {
 			return new ResponseEntity<>(HttpStatus.CONFLICT);
 		}
@@ -66,7 +83,7 @@ public class S3RestController {
 	public ResponseEntity<File> newObject(@PathVariable String bucketName,
 			@RequestParam(value = "file") MultipartFile uploadObject,
 			@RequestParam(value = "isPublic") boolean isPublic) throws IOException {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		if (!s3.doesBucketExistV2(bucketName)) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}
@@ -80,6 +97,8 @@ public class S3RestController {
 				convUploadObject);
 		if (isPublic) {
 			por.setCannedAcl(CannedAccessControlList.PublicRead);
+		} else {
+			por.setCannedAcl(CannedAccessControlList.Private);
 		}
 		s3.putObject(por);
 		return new ResponseEntity<>(HttpStatus.CREATED);
@@ -87,7 +106,7 @@ public class S3RestController {
 
 	@DeleteMapping("/{bucketName}")
 	public ResponseEntity<String> deleteBucket(@PathVariable String bucketName) {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		if (!s3.doesBucketExistV2(bucketName)) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}
@@ -97,7 +116,7 @@ public class S3RestController {
 
 	@DeleteMapping("/{bucketName}/{objectName}")
 	public ResponseEntity<String> deleteComment(@PathVariable String bucketName, @PathVariable String objectName) {
-		configureS3();
+		AmazonS3 s3 = configureS3();
 		if (!s3.doesBucketExistV2(bucketName)) {
 			return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 		}
@@ -105,8 +124,20 @@ public class S3RestController {
 		return new ResponseEntity<>(HttpStatus.NO_CONTENT);
 	}
 
-	public static void configureS3() {
-		s3 = AmazonS3ClientBuilder.standard().withRegion(Regions.US_EAST_1).build();
+	@PostMapping("/{bucketName}/{objectName}/copy")
+	public ResponseEntity<String> copyObject(@PathVariable String bucketName, @PathVariable String objectName,
+												@QueryParam("destinationBucketName") String destinationBucketName) {
+		AmazonS3 s3 = configureS3();
+		if (!s3.doesBucketExistV2(bucketName) || !s3.doesBucketExistV2(destinationBucketName)) {
+			return new ResponseEntity<>(HttpStatus.CONFLICT);
+		}
+		s3.copyObject(bucketName, objectName, 
+					destinationBucketName, objectName);
+		return new ResponseEntity<>(HttpStatus.CREATED);
+	}
+
+	public static AmazonS3 configureS3() {
+		return AmazonS3ClientBuilder.standard().withRegion(Regions.US_EAST_1).build();
 	}
 
 	public static File convertMultipartFileToFile(MultipartFile file) throws IOException {
