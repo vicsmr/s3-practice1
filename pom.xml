@@ -22,7 +22,7 @@ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xs
     <dependency>
         <groupId>com.amazonaws</groupId>
         <artifactId>aws-java-sdk-s3</artifactId>
-        <version>1.11.681</version>
+        <version>1.12.261</version>
     </dependency>
     <!-- https://mvnrepository.com/artifact/org.apache.commons.io/commonsIO -->
     <dependency>
